@@ -1,0 +1,6 @@
+# IDE
+.history/
+
+# ZIG
+.zig-cache/
+zig-out/
