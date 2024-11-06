@@ -5,13 +5,13 @@ const print = std.debug.print;
 const fs = std.fs;
 const mem = std.mem;
 
-const FileError = error{ NotFound, Scan, OutOfMemory };
+const FileError = error{ Scan, Creation, OutOfMemory };
 
 const IGNORED_DIRECTORIES = [_][]const u8{ "node_modules", ".zig-cache", "zig-out", "test", ".git" };
 const BASE_PATH_SCAN = ".";
 
 pub fn main() !void {
-    // Create an allocator
+    // create an allocator
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const alloc = gpa.allocator();
@@ -21,22 +21,22 @@ pub fn main() !void {
         return;
     };
 
+    var base_dir = fs.cwd().openDir(BASE_PATH_SCAN, .{}) catch {
+        print("Error while scanning base directory", .{});
+        return;
+    };
+    defer base_dir.close();
+
     var file_count: usize = 0;
     var directory_count: usize = 0;
 
-    const file_path = findPathFile(alloc, BASE_PATH_SCAN, filename, &file_count, &directory_count) catch |err| {
-        print("File scanned : {d}\n", .{file_count});
-        print("Directory scanned : {d}\n", .{directory_count});
+    const file = findFile(alloc, BASE_PATH_SCAN, filename, base_dir, &file_count, &directory_count) catch |err| {
+        print("Files scanned : {d}\n", .{file_count});
+        print("Directories scanned : {d}\n", .{directory_count});
 
         switch (err) {
-            FileError.NotFound => {
-                print("File not found\n", .{});
-                var dir = try fs.cwd().openDir(BASE_PATH_SCAN, .{});
-                defer dir.close();
-
-                const file = try dir.createFile(filename, .{ .read = true });
-                defer file.close();
-
+            FileError.Creation => {
+                print("Error while creating file", .{});
                 return;
             },
             FileError.Scan => {
@@ -49,16 +49,16 @@ pub fn main() !void {
             },
         }
     };
-    defer alloc.free(file_path);
+    defer file.close();
 
-    print("File path : {s}\n", .{file_path});
+    print("File path : {any}\n", .{file});
     print("File scanned : {d}\n", .{file_count});
     print("Directory scanned : {d}\n", .{directory_count});
 
     return;
 }
 
-fn findPathFile(alloc: mem.Allocator, path: []const u8, filename: []const u8, file_count: *usize, directory_count: *usize) FileError![]const u8 {
+fn findFile(alloc: mem.Allocator, path: []const u8, filename: []const u8, base_dir: fs.Dir, file_count: *usize, directory_count: *usize) FileError!fs.File {
     // open the directory
     var dir = fs.cwd().openDir(path, .{ .iterate = true }) catch return FileError.Scan;
     defer dir.close(); // close the directory when we're done
@@ -70,7 +70,7 @@ fn findPathFile(alloc: mem.Allocator, path: []const u8, filename: []const u8, fi
             file_count.* += 1;
 
             if (mem.eql(u8, filename, entry.name)) {
-                return try fs.path.join(alloc, &[_][]const u8{ path, entry.name });
+                return dir.openFile(filename, .{}) catch FileError.Creation;
             }
         }
         if (entry.kind == .directory and !shouldIgnoreDirectory(entry.name)) {
@@ -80,14 +80,11 @@ fn findPathFile(alloc: mem.Allocator, path: []const u8, filename: []const u8, fi
             defer alloc.free(new_path);
 
             // recursively search in subdirectories
-            return findPathFile(alloc, new_path, filename, file_count, directory_count) catch |err| {
-                if (err != FileError.NotFound) return err;
-                continue;
-            };
+            return findFile(alloc, new_path, filename, base_dir, file_count, directory_count);
         }
     }
 
-    return FileError.NotFound;
+    return base_dir.createFile(filename, .{ .read = true }) catch FileError.Creation;
 }
 
 fn shouldIgnoreDirectory(name: []const u8) bool {
