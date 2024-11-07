@@ -9,6 +9,8 @@ const FileError = error{ Scan, Creation, OutOfMemory };
 
 const IGNORED_DIRECTORIES = [_][]const u8{ "node_modules", ".zig-cache", "zig-out", "test", ".git" };
 const BASE_PATH_SCAN = ".";
+const START_SCANNER = "// start-infer-types";
+const END_SCANNER = "// end-infer-types";
 
 pub fn main() !void {
     // create an allocator
@@ -51,16 +53,17 @@ pub fn main() !void {
     };
     defer file.close();
 
-    print("File path : {any}\n", .{file});
     print("File scanned : {d}\n", .{file_count});
     print("Directory scanned : {d}\n", .{directory_count});
+
+    try replaceContentFile(alloc, file);
 
     return;
 }
 
 fn findFile(alloc: mem.Allocator, path: []const u8, filename: []const u8, base_dir: fs.Dir, file_count: *usize, directory_count: *usize) FileError!fs.File {
     // open the directory
-    var dir = fs.cwd().openDir(path, .{ .iterate = true }) catch return FileError.Scan;
+    var dir = base_dir.openDir(path, .{ .iterate = true }) catch return FileError.Scan;
     defer dir.close(); // close the directory when we're done
 
     var directory_iterator = dir.iterate();
@@ -70,7 +73,7 @@ fn findFile(alloc: mem.Allocator, path: []const u8, filename: []const u8, base_d
             file_count.* += 1;
 
             if (mem.eql(u8, filename, entry.name)) {
-                return dir.openFile(filename, .{}) catch FileError.Creation;
+                return dir.openFile(filename, .{ .mode = .read_write }) catch FileError.Creation;
             }
         }
         if (entry.kind == .directory and !shouldIgnoreDirectory(entry.name)) {
@@ -80,11 +83,43 @@ fn findFile(alloc: mem.Allocator, path: []const u8, filename: []const u8, base_d
             defer alloc.free(new_path);
 
             // recursively search in subdirectories
-            return findFile(alloc, new_path, filename, base_dir, file_count, directory_count);
+            if (findFile(alloc, new_path, filename, base_dir, file_count, directory_count)) |file| {
+                return file;
+            } else |_| {
+                // if we get an error, continue searching other directories
+                continue;
+            }
         }
     }
 
-    return base_dir.createFile(filename, .{ .read = true }) catch FileError.Creation;
+    if (mem.eql(u8, path, BASE_PATH_SCAN)) {
+        // only create the file if we're in the base directory and haven't found it anywhere
+        return base_dir.createFile(filename, .{ .truncate = true }) catch FileError.Creation;
+    }
+
+    return FileError.Creation;
+}
+
+fn replaceContentFile(alloc: mem.Allocator, file: fs.File) !void {
+    const content_file = try file.readToEndAlloc(alloc, std.math.maxInt(usize));
+    defer alloc.free(content_file);
+
+    const start_index = mem.indexOf(u8, content_file, START_SCANNER) orelse {
+        print("Start scanner not found\n", .{});
+        return;
+    };
+
+    const end_index = mem.indexOf(u8, content_file, END_SCANNER) orelse {
+        print("End scanner not found\n", .{});
+        return;
+    };
+
+    if (end_index <= start_index) {
+        print("Invalid scanner positions\n", .{});
+        return;
+    }
+
+    print("Found scanners - Start: {d}, End: {d}\n", .{ start_index, end_index });
 }
 
 fn shouldIgnoreDirectory(name: []const u8) bool {
