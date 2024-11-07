@@ -1,7 +1,5 @@
-type Hihi = true;
-
 // start-infer-types
-interface Lol {
+interface Test {
   name: string;
 }
 // end-infer-types

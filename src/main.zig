@@ -56,7 +56,7 @@ pub fn main() !void {
     print("File scanned : {d}\n", .{file_count});
     print("Directory scanned : {d}\n", .{directory_count});
 
-    try replaceContentFile(alloc, file);
+    try replaceContentFile(alloc, file, null);
 
     return;
 }
@@ -100,26 +100,54 @@ fn findFile(alloc: mem.Allocator, path: []const u8, filename: []const u8, base_d
     return FileError.Creation;
 }
 
-fn replaceContentFile(alloc: mem.Allocator, file: fs.File) !void {
+fn replaceContentFile(alloc: mem.Allocator, file: fs.File, content: ?[]const u8) !void {
     const content_file = try file.readToEndAlloc(alloc, std.math.maxInt(usize));
     defer alloc.free(content_file);
 
+    const content_between_scanners = content orelse
+        \\
+        \\interface Test {
+        \\  name: string;
+        \\}
+        \\
+    ;
+
     const start_index = mem.indexOf(u8, content_file, START_SCANNER) orelse {
-        print("Start scanner not found\n", .{});
+        try writeContentEndOfFile(file, content_between_scanners);
         return;
     };
 
     const end_index = mem.indexOf(u8, content_file, END_SCANNER) orelse {
-        print("End scanner not found\n", .{});
+        try writeContentEndOfFile(file, content_between_scanners);
         return;
     };
 
     if (end_index <= start_index) {
-        print("Invalid scanner positions\n", .{});
+        try writeContentEndOfFile(file, content_between_scanners);
         return;
     }
 
-    print("Found scanners - Start: {d}, End: {d}\n", .{ start_index, end_index });
+    var new_content = std.ArrayList(u8).init(alloc);
+    defer new_content.deinit();
+
+    const content_before_scanner = content_file[0 .. start_index + START_SCANNER.len];
+    const content_after_scanners = content_file[end_index..];
+
+    try new_content.appendSlice(content_before_scanner);
+    try new_content.appendSlice(content_between_scanners);
+    try new_content.appendSlice(content_after_scanners);
+
+    // position pointer file at the beginning
+    try file.seekTo(0);
+    try file.writeAll(new_content.items);
+    // remove content file after the length of the new_content
+    try file.setEndPos(new_content.items.len);
+}
+
+fn writeContentEndOfFile(file: fs.File, content: []const u8) !void {
+    try file.writeAll(START_SCANNER);
+    try file.writeAll(content);
+    try file.writeAll(END_SCANNER);
 }
 
 fn shouldIgnoreDirectory(name: []const u8) bool {
