@@ -1,4 +1,4 @@
-# Scan a directory for a cretain type files (.svg here), and create a Typescript type for every file
+# Scan a directory for a specific type files (.svg here), and create a Typescript type for every filename
 
 ```typescript
 // start-infer-types
