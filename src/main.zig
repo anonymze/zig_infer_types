@@ -11,6 +11,7 @@ const IGNORED_DIRECTORIES = [_][]const u8{ "node_modules", ".zig-cache", "zig-ou
 const BASE_PATH_SCAN = ".";
 const START_SCANNER = "// start-infer-types";
 const END_SCANNER = "// end-infer-types";
+const SCAN_FILE_TYPE = ".svg";
 
 pub fn main() !void {
     // create an allocator
@@ -216,7 +217,7 @@ fn formatContentBetweenScanners(alloc: mem.Allocator, filenames: std.ArrayListAl
     for (filenames.items, 0..) |name, idx| {
         if (idx == 0) try buffer.appendSlice(type_svg_icons);
 
-        if (mem.endsWith(u8, name, ".svg")) {
+        if (mem.endsWith(u8, name, SCAN_FILE_TYPE)) {
             if (first_svg_used) try buffer.appendSlice(" | ");
             try buffer.appendSlice("\"");
             try buffer.appendSlice(name[0 .. name.len - 4]);
