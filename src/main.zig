@@ -152,9 +152,7 @@ fn replaceContentFile(alloc: mem.Allocator, file: fs.File, filenames: ?std.Array
             break :blk ContentResult{
                 .content =
                 \\
-                \\interface Test {
-                \\  name: string;
-                \\}
+                \\type SVGIcons = "test";
                 \\
                 ,
                 .needs_free = false,
@@ -212,14 +210,25 @@ fn formatContentBetweenScanners(alloc: mem.Allocator, filenames: std.ArrayListAl
     var buffer = std.ArrayList(u8).init(alloc);
     defer buffer.deinit();
 
-    for (filenames.items) |name| {
-        try std.fmt.format(buffer.writer(),
-            \\
-            \\ interface {s} {{
-            \\  name: string;
-            \\}}
-            \\
-        , .{name});
+    const type_svg_icons = "\ntype SVGIcons = ";
+    var first_svg_used = false;
+
+    for (filenames.items, 0..) |name, idx| {
+        if (idx == 0) try buffer.appendSlice(type_svg_icons);
+
+        if (mem.endsWith(u8, name, ".svg")) {
+            if (first_svg_used) try buffer.appendSlice(" | ");
+            try buffer.appendSlice("\"");
+            try buffer.appendSlice(name[0 .. name.len - 4]);
+            try buffer.appendSlice("\"");
+            first_svg_used = true;
+        }
+
+        if (idx == filenames.items.len - 1) {
+            // if we have no svg on the directory we type it to never
+            if (buffer.items.len == type_svg_icons.len) try buffer.appendSlice("never");
+            try buffer.appendSlice(";\n");
+        }
     }
 
     return buffer.toOwnedSlice();
