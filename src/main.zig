@@ -153,7 +153,7 @@ fn replaceContentFile(alloc: mem.Allocator, file: fs.File, filenames: ?std.Array
             break :blk ContentResult{
                 .content =
                 \\
-                \\type SVGIcons = "test";
+                \\type SVGNameIcons = "test";
                 \\
                 ,
                 .needs_free = false,
@@ -211,7 +211,7 @@ fn formatContentBetweenScanners(alloc: mem.Allocator, filenames: std.ArrayListAl
     var buffer = std.ArrayList(u8).init(alloc);
     defer buffer.deinit();
 
-    const type_svg_icons = "\ntype SVGIcons = ";
+    const type_svg_icons = "\ntype SVGNameIcons = ";
     var first_svg_used = false;
 
     for (filenames.items, 0..) |name, idx| {
