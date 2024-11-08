@@ -19,7 +19,12 @@ pub fn main() !void {
     const alloc = gpa.allocator();
 
     const filename = args.getArgumentCommandLine("--filename") catch {
-        print("No argument found", .{});
+        print("No argument filename found", .{});
+        return;
+    };
+
+    const directory_to_scan = args.getArgumentCommandLine("--directory") catch {
+        print("No argument directory found", .{});
         return;
     };
 
@@ -55,6 +60,16 @@ pub fn main() !void {
 
     print("File scanned : {d}\n", .{file_count});
     print("Directory scanned : {d}\n", .{directory_count});
+
+    const filenames = try getFilenamesOfDirectory(alloc, directory_to_scan);
+    defer {
+        for (filenames.items) |item| {
+            alloc.free(item);
+        }
+        filenames.deinit();
+    }
+
+    print("Filenames : {s}", .{filenames.items});
 
     try replaceContentFile(alloc, file, null);
 
@@ -98,6 +113,23 @@ fn findFile(alloc: mem.Allocator, path: []const u8, filename: []const u8, base_d
     }
 
     return FileError.Creation;
+}
+
+fn getFilenamesOfDirectory(alloc: mem.Allocator, path: []const u8) !std.ArrayListAligned([]const u8, null) {
+    var dir = try fs.cwd().openDir(path, .{ .iterate = true });
+    defer dir.close();
+
+    var dir_itreate = dir.iterate();
+
+    var filenames = std.ArrayList([]const u8).init(alloc);
+    errdefer filenames.deinit();
+
+    while (try dir_itreate.next()) |entry| {
+        if (entry.kind != .file) continue;
+        try filenames.append(try alloc.dupe(u8, entry.name));
+    }
+
+    return filenames;
 }
 
 fn replaceContentFile(alloc: mem.Allocator, file: fs.File, content: ?[]const u8) !void {
