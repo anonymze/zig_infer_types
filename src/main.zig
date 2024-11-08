@@ -69,9 +69,9 @@ pub fn main() !void {
         filenames.deinit();
     }
 
-    print("Filenames : {s}", .{filenames.items});
+    print("Filenames found : {s}", .{filenames.items});
 
-    try replaceContentFile(alloc, file, null);
+    try replaceContentFile(alloc, file, filenames);
 
     return;
 }
@@ -132,30 +132,49 @@ fn getFilenamesOfDirectory(alloc: mem.Allocator, path: []const u8) !std.ArrayLis
     return filenames;
 }
 
-fn replaceContentFile(alloc: mem.Allocator, file: fs.File, content: ?[]const u8) !void {
+fn replaceContentFile(alloc: mem.Allocator, file: fs.File, filenames: ?std.ArrayListAligned([]const u8, null)) !void {
     const content_file = try file.readToEndAlloc(alloc, std.math.maxInt(usize));
     defer alloc.free(content_file);
 
-    const content_between_scanners = content orelse
-        \\
-        \\interface Test {
-        \\  name: string;
-        \\}
-        \\
-    ;
+    const ContentResult = struct {
+        content: []const u8,
+        needs_free: bool,
+    };
+
+    const content_between_scanners = blk: {
+        if (filenames) |list| {
+            const content = try formatContentBetweenScanners(alloc, list);
+            break :blk ContentResult{
+                .content = content,
+                .needs_free = true,
+            };
+        } else {
+            break :blk ContentResult{
+                .content =
+                \\
+                \\interface Test {
+                \\  name: string;
+                \\}
+                \\
+                ,
+                .needs_free = false,
+            };
+        }
+    };
+    defer if (content_between_scanners.needs_free) alloc.free(content_between_scanners.content);
 
     const start_index = mem.indexOf(u8, content_file, START_SCANNER) orelse {
-        try writeContentEndOfFile(file, content_between_scanners);
+        try writeContentEndOfFile(file, content_between_scanners.content);
         return;
     };
 
     const end_index = mem.indexOf(u8, content_file, END_SCANNER) orelse {
-        try writeContentEndOfFile(file, content_between_scanners);
+        try writeContentEndOfFile(file, content_between_scanners.content);
         return;
     };
 
     if (end_index <= start_index) {
-        try writeContentEndOfFile(file, content_between_scanners);
+        try writeContentEndOfFile(file, content_between_scanners.content);
         return;
     }
 
@@ -166,7 +185,7 @@ fn replaceContentFile(alloc: mem.Allocator, file: fs.File, content: ?[]const u8)
     const content_after_scanners = content_file[end_index..];
 
     try new_content.appendSlice(content_before_scanner);
-    try new_content.appendSlice(content_between_scanners);
+    try new_content.appendSlice(content_between_scanners.content);
     try new_content.appendSlice(content_after_scanners);
 
     // position pointer file at the beginning
@@ -187,4 +206,21 @@ fn shouldIgnoreDirectory(name: []const u8) bool {
         if (mem.eql(u8, ignored, name)) return true;
     }
     return false;
+}
+
+fn formatContentBetweenScanners(alloc: mem.Allocator, filenames: std.ArrayListAligned([]const u8, null)) ![]const u8 {
+    var buffer = std.ArrayList(u8).init(alloc);
+    defer buffer.deinit();
+
+    for (filenames.items) |name| {
+        try std.fmt.format(buffer.writer(),
+            \\
+            \\ interface {s} {{
+            \\  name: string;
+            \\}}
+            \\
+        , .{name});
+    }
+
+    return buffer.toOwnedSlice();
 }
